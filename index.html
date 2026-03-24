@@ -1,0 +1,758 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>감정일기 📝</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --bg: #FFF8E7;
+      --card: #FFFFFF;
+      --primary: #FF6B6B;
+      --primary-light: #FFE0E0;
+      --secondary: #4ECDC4;
+      --accent: #FFE66D;
+      --text: #2D3436;
+      --text-light: #636E72;
+      --shadow: 0 4px 20px rgba(0,0,0,0.08);
+      --radius: 20px;
+    }
+
+    body {
+      font-family: 'Noto Sans KR', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ===== 헤더 ===== */
+    .header {
+      background: linear-gradient(135deg, #FF6B6B, #FF8E8E, #FFB4B4);
+      padding: 20px;
+      text-align: center;
+      color: white;
+      position: relative;
+    }
+    .header h1 { font-size: 1.8rem; font-weight: 900; }
+    .header .subtitle { font-size: 0.9rem; opacity: 0.9; margin-top: 4px; }
+    .header .user-info {
+      position: absolute; right: 20px; top: 50%; transform: translateY(-50%);
+      font-size: 0.85rem; text-align: right;
+    }
+    .header .user-info .name { font-weight: 700; font-size: 1rem; }
+    .btn-logout {
+      background: rgba(255,255,255,0.25); border: none; color: white;
+      padding: 4px 12px; border-radius: 12px; cursor: pointer; font-size: 0.8rem;
+      margin-top: 4px;
+    }
+    .btn-logout:hover { background: rgba(255,255,255,0.4); }
+
+    /* ===== 로그인 화면 ===== */
+    .login-screen {
+      display: flex; align-items: center; justify-content: center;
+      min-height: 100vh; padding: 20px;
+      background: linear-gradient(135deg, #FFF8E7 0%, #FFE0E0 50%, #E0F4F1 100%);
+    }
+    .login-box {
+      background: white; border-radius: var(--radius); padding: 40px;
+      box-shadow: var(--shadow); max-width: 400px; width: 100%; text-align: center;
+    }
+    .login-box h2 { font-size: 2rem; margin-bottom: 8px; }
+    .login-box .emoji-big { font-size: 4rem; display: block; margin-bottom: 16px; }
+    .login-box p { color: var(--text-light); margin-bottom: 24px; }
+
+    .form-group { margin-bottom: 16px; text-align: left; }
+    .form-group label { font-weight: 700; font-size: 0.9rem; display: block; margin-bottom: 6px; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 12px 16px; border: 2px solid #E0E0E0;
+      border-radius: 12px; font-size: 1rem; font-family: inherit;
+      transition: border-color 0.2s;
+    }
+    .form-group input:focus, .form-group select:focus {
+      outline: none; border-color: var(--primary);
+    }
+
+    .btn-primary {
+      width: 100%; padding: 14px; border: none; border-radius: 14px;
+      background: linear-gradient(135deg, #FF6B6B, #FF8E8E);
+      color: white; font-size: 1.1rem; font-weight: 700;
+      cursor: pointer; font-family: inherit; transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(255,107,107,0.3); }
+    .btn-primary:active { transform: translateY(0); }
+
+    .login-links { margin-top: 16px; }
+    .login-links a {
+      color: var(--secondary); text-decoration: none; font-size: 0.9rem; font-weight: 500;
+    }
+    .login-links a:hover { text-decoration: underline; }
+
+    .error-msg {
+      background: #FFE0E0; color: #D63031; padding: 10px; border-radius: 10px;
+      font-size: 0.85rem; margin-bottom: 16px; display: none;
+    }
+
+    /* ===== 메인 컨테이너 ===== */
+    .container { max-width: 800px; margin: 0 auto; padding: 20px; }
+
+    /* ===== 탭 네비게이션 ===== */
+    .tabs {
+      display: flex; gap: 8px; margin-bottom: 20px;
+      background: white; border-radius: 16px; padding: 6px;
+      box-shadow: var(--shadow);
+    }
+    .tab-btn {
+      flex: 1; padding: 12px; border: none; border-radius: 12px;
+      background: transparent; font-size: 0.95rem; font-weight: 700;
+      cursor: pointer; font-family: inherit; transition: all 0.2s;
+      color: var(--text-light);
+    }
+    .tab-btn.active {
+      background: linear-gradient(135deg, #FF6B6B, #FF8E8E);
+      color: white;
+    }
+    .tab-btn:not(.active):hover { background: #F5F5F5; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* ===== 감정 기록 카드 ===== */
+    .card {
+      background: white; border-radius: var(--radius); padding: 24px;
+      box-shadow: var(--shadow); margin-bottom: 20px;
+    }
+    .card h3 { font-size: 1.2rem; margin-bottom: 16px; }
+
+    /* 교시 선택 */
+    .period-selector {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+      margin-bottom: 20px;
+    }
+    .period-btn {
+      padding: 12px 8px; border: 2px solid #E0E0E0; border-radius: 12px;
+      background: white; font-size: 0.95rem; font-weight: 700;
+      cursor: pointer; font-family: inherit; transition: all 0.2s; text-align: center;
+    }
+    .period-btn.selected {
+      border-color: var(--secondary); background: #E0F9F6; color: #00B894;
+    }
+    .period-btn:hover:not(.selected) { border-color: #B0B0B0; }
+
+    /* 감정 선택 */
+    .emotion-grid {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+      margin-bottom: 20px;
+    }
+    .emotion-btn {
+      display: flex; flex-direction: column; align-items: center;
+      padding: 16px 8px; border: 3px solid transparent; border-radius: 16px;
+      background: #F8F8F8; cursor: pointer; transition: all 0.2s;
+      font-family: inherit;
+    }
+    .emotion-btn .emoji { font-size: 2.2rem; margin-bottom: 6px; }
+    .emotion-btn .label { font-size: 0.8rem; font-weight: 700; color: var(--text); }
+    .emotion-btn.selected { border-color: var(--primary); background: var(--primary-light); transform: scale(1.05); }
+    .emotion-btn:hover:not(.selected) { transform: scale(1.03); background: #F0F0F0; }
+
+    /* 감정 강도 */
+    .intensity-section { margin-bottom: 20px; }
+    .intensity-label { font-weight: 700; margin-bottom: 10px; display: flex; justify-content: space-between; }
+    .intensity-slider {
+      width: 100%; -webkit-appearance: none; height: 12px;
+      border-radius: 6px; background: linear-gradient(to right, #FFE0E0, #FF6B6B);
+      outline: none;
+    }
+    .intensity-slider::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 28px; height: 28px;
+      border-radius: 50%; background: white; border: 3px solid var(--primary);
+      cursor: pointer; box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .intensity-labels {
+      display: flex; justify-content: space-between;
+      font-size: 0.75rem; color: var(--text-light); margin-top: 6px;
+    }
+
+    /* 메모 */
+    .memo-input {
+      width: 100%; padding: 14px; border: 2px solid #E0E0E0;
+      border-radius: 14px; font-size: 1rem; font-family: inherit;
+      resize: vertical; min-height: 80px; transition: border-color 0.2s;
+    }
+    .memo-input:focus { outline: none; border-color: var(--primary); }
+    .memo-input::placeholder { color: #B0B0B0; }
+
+    .btn-save {
+      width: 100%; padding: 16px; border: none; border-radius: 14px;
+      background: linear-gradient(135deg, #4ECDC4, #44B5AD);
+      color: white; font-size: 1.2rem; font-weight: 900;
+      cursor: pointer; font-family: inherit; margin-top: 16px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .btn-save:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(78,205,196,0.3); }
+    .btn-save:active { transform: translateY(0); }
+    .btn-save:disabled {
+      background: #CCC; cursor: not-allowed; transform: none; box-shadow: none;
+    }
+
+    /* ===== 기록 보기 ===== */
+    .date-picker-row {
+      display: flex; gap: 10px; align-items: center; margin-bottom: 16px;
+    }
+    .date-picker-row input[type="date"] {
+      flex: 1; padding: 10px 14px; border: 2px solid #E0E0E0;
+      border-radius: 12px; font-size: 1rem; font-family: inherit;
+    }
+    .btn-search {
+      padding: 10px 20px; border: none; border-radius: 12px;
+      background: var(--secondary); color: white; font-weight: 700;
+      cursor: pointer; font-family: inherit; font-size: 0.95rem;
+    }
+
+    .record-list { list-style: none; }
+    .record-item {
+      display: flex; align-items: center; gap: 14px;
+      padding: 14px; border-radius: 14px; margin-bottom: 10px;
+      background: #F8F9FA; transition: background 0.2s;
+    }
+    .record-item:hover { background: #F0F1F2; }
+    .record-item .r-emoji { font-size: 2rem; }
+    .record-item .r-info { flex: 1; }
+    .record-item .r-emotion { font-weight: 700; font-size: 1rem; }
+    .record-item .r-meta { font-size: 0.8rem; color: var(--text-light); margin-top: 2px; }
+    .record-item .r-memo { font-size: 0.85rem; color: var(--text); margin-top: 4px; }
+    .record-item .r-intensity {
+      width: 40px; height: 40px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 900; font-size: 0.9rem; color: white;
+    }
+
+    .no-records {
+      text-align: center; padding: 40px; color: var(--text-light);
+    }
+    .no-records .emoji { font-size: 3rem; margin-bottom: 10px; }
+
+    /* ===== 오늘의 감정 요약 ===== */
+    .today-summary {
+      display: flex; gap: 10px; margin-bottom: 20px;
+      overflow-x: auto; padding-bottom: 6px;
+    }
+    .summary-chip {
+      display: flex; align-items: center; gap: 6px;
+      padding: 8px 14px; background: white; border-radius: 20px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.06); white-space: nowrap;
+      font-size: 0.85rem; font-weight: 500;
+    }
+    .summary-chip .s-emoji { font-size: 1.3rem; }
+
+    /* ===== 토스트 메시지 ===== */
+    .toast {
+      position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px);
+      background: #2D3436; color: white; padding: 14px 28px; border-radius: 14px;
+      font-weight: 700; font-size: 0.95rem; z-index: 1000;
+      transition: transform 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+      box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+    }
+    .toast.show { transform: translateX(-50%) translateY(0); }
+
+    /* ===== 로딩 ===== */
+    .loading { text-align: center; padding: 30px; }
+    .spinner {
+      display: inline-block; width: 40px; height: 40px;
+      border: 4px solid #E0E0E0; border-top-color: var(--primary);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ===== 반응형 ===== */
+    @media (max-width: 600px) {
+      .header .user-info { position: static; transform: none; margin-top: 8px; }
+      .emotion-grid { grid-template-columns: repeat(3, 1fr); }
+      .period-selector { grid-template-columns: repeat(4, 1fr); }
+      .container { padding: 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ===== 설정 화면 (API URL 미설정 시) ===== -->
+<div id="setupScreen" class="login-screen" style="display:none;">
+  <div class="login-box">
+    <span class="emoji-big">⚙️</span>
+    <h2>초기 설정</h2>
+    <p>Google Apps Script 배포 URL을 입력해주세요</p>
+    <div class="form-group">
+      <label>API URL</label>
+      <input type="text" id="apiUrlInput" placeholder="https://script.google.com/macros/s/...">
+    </div>
+    <button class="btn-primary" onclick="saveApiUrl()">저장하기</button>
+  </div>
+</div>
+
+<!-- ===== 로그인 화면 ===== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-box">
+    <span class="emoji-big">📝</span>
+    <h2>감정일기</h2>
+    <p>오늘 내 마음은 어떤 색일까?</p>
+    <div id="loginError" class="error-msg"></div>
+    <div class="form-group">
+      <label>반</label>
+      <select id="loginClass">
+        <option value="">반을 선택하세요</option>
+        <option value="1">1반</option>
+        <option value="2">2반</option>
+        <option value="3">3반</option>
+        <option value="4">4반</option>
+        <option value="5">5반</option>
+        <option value="6">6반</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>번호</label>
+      <input type="number" id="loginNum" placeholder="번호를 입력하세요" min="1" max="40">
+    </div>
+    <div class="form-group">
+      <label>비밀번호</label>
+      <input type="password" id="loginPw" placeholder="비밀번호를 입력하세요">
+    </div>
+    <button class="btn-primary" onclick="login()">로그인</button>
+    <div class="login-links">
+      <a href="teacher.html">선생님 로그인 →</a>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 메인 화면 ===== -->
+<div id="mainScreen" style="display:none;">
+  <div class="header">
+    <h1>📝 감정일기</h1>
+    <div class="subtitle">오늘 내 마음을 기록해보자!</div>
+    <div class="user-info">
+      <div class="name" id="displayName"></div>
+      <button class="btn-logout" onclick="logout()">로그아웃</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <!-- 오늘 감정 요약 -->
+    <div id="todaySummary" class="today-summary"></div>
+
+    <!-- 탭 -->
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('write')">✏️ 기록하기</button>
+      <button class="tab-btn" onclick="switchTab('view')">📊 내 기록</button>
+    </div>
+
+    <!-- 기록하기 탭 -->
+    <div id="tab-write" class="tab-content active">
+      <div class="card">
+        <h3>🕐 지금은 몇 교시?</h3>
+        <div class="period-selector" id="periodSelector">
+          <button class="period-btn" data-period="1">1교시</button>
+          <button class="period-btn" data-period="2">2교시</button>
+          <button class="period-btn" data-period="3">3교시</button>
+          <button class="period-btn" data-period="4">4교시</button>
+          <button class="period-btn" data-period="5">5교시</button>
+          <button class="period-btn" data-period="6">6교시</button>
+          <button class="period-btn" data-period="쉬는시간">쉬는시간</button>
+          <button class="period-btn" data-period="점심">점심</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>💭 지금 내 감정은?</h3>
+        <div class="emotion-grid" id="emotionGrid"></div>
+      </div>
+
+      <div class="card">
+        <h3>📏 얼마나 강하게 느껴져?</h3>
+        <div class="intensity-section">
+          <div class="intensity-label">
+            <span>감정 강도</span>
+            <span id="intensityValue">3</span>
+          </div>
+          <input type="range" class="intensity-slider" id="intensitySlider" min="1" max="5" value="3">
+          <div class="intensity-labels">
+            <span>조금</span>
+            <span>보통</span>
+            <span>아주 많이</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>📝 오늘 감정에 대하여 단어 혹은 문장으로 이야기해보자!</h3>
+        <textarea class="memo-input" id="memoInput" placeholder="지금 감정이 든 이유나 하고 싶은 말을 자유롭게 적어봐! (안 적어도 괜찮아)"></textarea>
+      </div>
+
+      <button class="btn-save" id="btnSave" onclick="saveEmotion()">감정 기록하기 ✨</button>
+    </div>
+
+    <!-- 내 기록 탭 -->
+    <div id="tab-view" class="tab-content">
+      <div class="card">
+        <h3>📅 날짜를 선택해봐</h3>
+        <div class="date-picker-row">
+          <input type="date" id="viewDate">
+          <button class="btn-search" onclick="loadRecords()">보기</button>
+        </div>
+      </div>
+      <div id="recordsList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 토스트 -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== HTML 이스케이프 (XSS 방지) =====
+function escapeHtml(str) {
+  if (!str) return '';
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.textContent;
+}
+
+// 안전한 DOM 요소 생성 헬퍼
+function createElement(tag, attrs, children) {
+  const el = document.createElement(tag);
+  if (attrs) {
+    Object.entries(attrs).forEach(([key, val]) => {
+      if (key === 'textContent') el.textContent = val;
+      else if (key === 'className') el.className = val;
+      else if (key === 'style') Object.assign(el.style, val);
+      else if (key.startsWith('on')) el.addEventListener(key.slice(2).toLowerCase(), val);
+      else el.setAttribute(key, val);
+    });
+  }
+  if (children) {
+    (Array.isArray(children) ? children : [children]).forEach(child => {
+      if (typeof child === 'string') el.appendChild(document.createTextNode(child));
+      else if (child) el.appendChild(child);
+    });
+  }
+  return el;
+}
+
+// ===== 감정 데이터 =====
+const EMOTIONS = [
+  { name: '행복', emoji: '😊', color: '#FFD93D' },
+  { name: '신남', emoji: '🤩', color: '#FF6B6B' },
+  { name: '평온', emoji: '😌', color: '#74B9FF' },
+  { name: '감사', emoji: '🥰', color: '#FD79A8' },
+  { name: '기대', emoji: '🤗', color: '#FFEAA7' },
+  { name: '뿌듯', emoji: '💪', color: '#55E6C1' },
+  { name: '걱정', emoji: '😟', color: '#A29BFE' },
+  { name: '슬픔', emoji: '😢', color: '#74B9FF' },
+  { name: '화남', emoji: '😡', color: '#FF6348' },
+  { name: '피곤', emoji: '😴', color: '#B2BEC3' },
+  { name: '무서움', emoji: '😨', color: '#DFE6E9' },
+  { name: '외로움', emoji: '🥺', color: '#DCDDE1' },
+  { name: '답답', emoji: '😤', color: '#E17055' },
+  { name: '부끄러움', emoji: '😳', color: '#FAB1A0' },
+  { name: '놀람', emoji: '😲', color: '#FDCB6E' },
+  { name: '그냥그냥', emoji: '😐', color: '#B2BEC3' },
+];
+
+const INTENSITY_COLORS = ['#74B9FF', '#55E6C1', '#FFEAA7', '#FAB1A0', '#FF6B6B'];
+
+// ===== 상태 =====
+let API_URL = localStorage.getItem('emotion_api_url') || 'https://script.google.com/macros/s/AKfycbwdYIENv0qZUqNUklQYM__gjBiri7BttV1nVXYmEBPsx-lRA18NGM27MpjipjBUj_Bs/exec';
+let currentUser = JSON.parse(localStorage.getItem('emotion_user') || 'null');
+let selectedPeriod = '';
+let selectedEmotion = null;
+
+// ===== 초기화 =====
+window.addEventListener('DOMContentLoaded', () => {
+  if (!API_URL) {
+    document.getElementById('setupScreen').style.display = 'flex';
+    document.getElementById('loginScreen').style.display = 'none';
+    return;
+  }
+
+  if (currentUser) {
+    showMainScreen();
+  }
+
+  renderEmotionGrid();
+  setupSlider();
+  document.getElementById('viewDate').value = getToday();
+});
+
+function getToday() {
+  const d = new Date();
+  return d.getFullYear() + '-' +
+    String(d.getMonth() + 1).padStart(2, '0') + '-' +
+    String(d.getDate()).padStart(2, '0');
+}
+
+// ===== API URL 설정 =====
+function saveApiUrl() {
+  const url = document.getElementById('apiUrlInput').value.trim();
+  if (!url) return;
+  API_URL = url;
+  localStorage.setItem('emotion_api_url', url);
+  document.getElementById('setupScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  renderEmotionGrid();
+  setupSlider();
+  document.getElementById('viewDate').value = getToday();
+}
+
+// ===== 로그인 =====
+async function login() {
+  const classNum = document.getElementById('loginClass').value;
+  const studentNum = document.getElementById('loginNum').value;
+  const password = document.getElementById('loginPw').value;
+
+  if (!classNum || !studentNum || !password) {
+    showLoginError('모든 항목을 입력해주세요!');
+    return;
+  }
+
+  try {
+    const url = API_URL + '?action=login&classNum=' + encodeURIComponent(classNum) +
+      '&studentNum=' + encodeURIComponent(studentNum) +
+      '&password=' + encodeURIComponent(password);
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.success) {
+      currentUser = data.student;
+      localStorage.setItem('emotion_user', JSON.stringify(currentUser));
+      showMainScreen();
+    } else {
+      showLoginError(data.message);
+    }
+  } catch (err) {
+    showLoginError('서버에 연결할 수 없습니다. API URL을 확인해주세요.');
+  }
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function logout() {
+  currentUser = null;
+  localStorage.removeItem('emotion_user');
+  document.getElementById('mainScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('loginPw').value = '';
+}
+
+function showMainScreen() {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('mainScreen').style.display = 'block';
+  document.getElementById('displayName').textContent =
+    currentUser.classNum + '반 ' + currentUser.studentNum + '번 ' + currentUser.name;
+  loadTodaySummary();
+}
+
+// ===== 감정 그리드 =====
+function renderEmotionGrid() {
+  const grid = document.getElementById('emotionGrid');
+  grid.replaceChildren();
+  EMOTIONS.forEach((emo, i) => {
+    const btn = createElement('button', { className: 'emotion-btn' }, [
+      createElement('span', { className: 'emoji', textContent: emo.emoji }),
+      createElement('span', { className: 'label', textContent: emo.name }),
+    ]);
+    btn.addEventListener('click', () => selectEmotion(i, btn));
+    grid.appendChild(btn);
+  });
+}
+
+function selectEmotion(index, btn) {
+  document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedEmotion = EMOTIONS[index];
+}
+
+// ===== 교시 선택 =====
+document.getElementById('periodSelector').addEventListener('click', (e) => {
+  const btn = e.target.closest('.period-btn');
+  if (!btn) return;
+  document.querySelectorAll('.period-btn').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  selectedPeriod = btn.dataset.period;
+});
+
+// ===== 슬라이더 =====
+function setupSlider() {
+  const slider = document.getElementById('intensitySlider');
+  const display = document.getElementById('intensityValue');
+  slider.addEventListener('input', () => {
+    display.textContent = slider.value;
+  });
+}
+
+// ===== 감정 저장 =====
+async function saveEmotion() {
+  if (!selectedPeriod) { showToast('교시를 선택해줘! 🕐'); return; }
+  if (!selectedEmotion) { showToast('감정을 선택해줘! 💭'); return; }
+
+  const btn = document.getElementById('btnSave');
+  btn.disabled = true;
+  btn.textContent = '저장 중...';
+
+  try {
+    const payload = {
+      action: 'saveEmotion',
+      classNum: currentUser.classNum,
+      studentNum: currentUser.studentNum,
+      name: currentUser.name,
+      period: selectedPeriod,
+      emotion: selectedEmotion.name,
+      intensity: document.getElementById('intensitySlider').value,
+      memo: document.getElementById('memoInput').value
+    };
+
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(selectedEmotion.emoji + ' "' + selectedEmotion.name + '" 기록 완료!');
+      document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+      document.getElementById('memoInput').value = '';
+      selectedEmotion = null;
+      loadTodaySummary();
+    } else {
+      showToast('저장 실패: ' + data.message);
+    }
+  } catch (err) {
+    showToast('서버 연결 오류! 다시 시도해줘.');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '감정 기록하기 ✨';
+}
+
+// ===== 오늘 감정 요약 (안전한 DOM 생성) =====
+async function loadTodaySummary() {
+  if (!currentUser) return;
+  try {
+    const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
+      '&studentNum=' + encodeURIComponent(currentUser.studentNum) +
+      '&date=' + getToday();
+    const res = await fetch(url);
+    const data = await res.json();
+
+    const container = document.getElementById('todaySummary');
+    container.replaceChildren();
+
+    if (data.success && data.records.length > 0) {
+      data.records.forEach(r => {
+        const emo = EMOTIONS.find(e => e.name === r.emotion) || { emoji: '❓' };
+        const chip = createElement('div', { className: 'summary-chip' }, [
+          createElement('span', { className: 's-emoji', textContent: emo.emoji }),
+          (r.period || '') + ' - ' + escapeHtml(r.emotion),
+        ]);
+        container.appendChild(chip);
+      });
+    } else {
+      const chip = createElement('div', { className: 'summary-chip' });
+      chip.textContent = '아직 오늘 기록이 없어요. 첫 감정을 기록해볼까? ✨';
+      container.appendChild(chip);
+    }
+  } catch (err) {
+    // 조용히 실패
+  }
+}
+
+// ===== 기록 조회 (안전한 DOM 생성) =====
+async function loadRecords() {
+  const date = document.getElementById('viewDate').value;
+  if (!date) return;
+
+  const container = document.getElementById('recordsList');
+  container.replaceChildren();
+  const loading = createElement('div', { className: 'loading' }, [
+    createElement('div', { className: 'spinner' }),
+    createElement('p', { textContent: '불러오는 중...' }),
+  ]);
+  container.appendChild(loading);
+
+  try {
+    const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
+      '&studentNum=' + encodeURIComponent(currentUser.studentNum) +
+      '&date=' + encodeURIComponent(date);
+    const res = await fetch(url);
+    const data = await res.json();
+
+    container.replaceChildren();
+
+    if (data.success && data.records.length > 0) {
+      const ul = createElement('ul', { className: 'record-list' });
+      data.records.forEach(r => {
+        const emo = EMOTIONS.find(e => e.name === r.emotion) || { emoji: '❓', color: '#CCC' };
+        const intIdx = Math.max(0, Math.min(4, parseInt(r.intensity) - 1));
+
+        const infoChildren = [
+          createElement('div', { className: 'r-emotion', textContent: escapeHtml(r.emotion) }),
+          createElement('div', { className: 'r-meta', textContent: (r.period ? r.period + '교시' : '') + ' · ' + escapeHtml(r.timestamp) }),
+        ];
+        if (r.memo) {
+          infoChildren.push(createElement('div', { className: 'r-memo', textContent: '"' + escapeHtml(r.memo) + '"' }));
+        }
+
+        const li = createElement('li', { className: 'record-item' }, [
+          createElement('div', { className: 'r-emoji', textContent: emo.emoji }),
+          createElement('div', { className: 'r-info' }, infoChildren),
+          createElement('div', {
+            className: 'r-intensity',
+            textContent: r.intensity,
+            style: { background: INTENSITY_COLORS[intIdx] }
+          }),
+        ]);
+        ul.appendChild(li);
+      });
+      container.appendChild(ul);
+    } else {
+      const noRec = createElement('div', { className: 'no-records' }, [
+        createElement('div', { className: 'emoji', textContent: '📭' }),
+        createElement('p', { textContent: '이 날의 기록이 없어요' }),
+      ]);
+      container.appendChild(noRec);
+    }
+  } catch (err) {
+    container.replaceChildren();
+    const errDiv = createElement('div', { className: 'no-records' }, [
+      createElement('div', { className: 'emoji', textContent: '⚠️' }),
+      createElement('p', { textContent: '불러오기 실패. 다시 시도해봐!' }),
+    ]);
+    container.appendChild(errDiv);
+  }
+}
+
+// ===== 탭 전환 =====
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach((btn, i) => {
+    btn.classList.toggle('active', (tab === 'write' && i === 0) || (tab === 'view' && i === 1));
+  });
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  if (tab === 'view') loadRecords();
+}
+
+// ===== 토스트 =====
+function showToast(msg) {
+  const toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(() => toast.classList.remove('show'), 2500);
+}
+</script>
+
+</body>
+</html>
