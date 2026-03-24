@@ -400,6 +400,7 @@
         <div class="date-picker-row">
           <input type="date" id="viewDate">
           <button class="btn-search" onclick="loadRecords()">보기</button>
+          <button class="btn-search" style="background:#FF6B6B;" onclick="loadAllRecords()">전체 보기</button>
         </div>
       </div>
       <div id="recordsList"></div>
@@ -736,6 +737,79 @@ async function loadRecords() {
   }
 }
 
+// ===== 전체 기록 조회 =====
+async function loadAllRecords() {
+  const container = document.getElementById('recordsList');
+  container.replaceChildren();
+  container.appendChild(createElement('div', { className: 'loading' }, [
+    createElement('div', { className: 'spinner' }),
+    createElement('p', { textContent: '불러오는 중...' }),
+  ]));
+
+  try {
+    const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
+      '&studentNum=' + encodeURIComponent(currentUser.studentNum);
+    const res = await fetch(url);
+    const data = await res.json();
+
+    container.replaceChildren();
+
+    if (data.success && data.records.length > 0) {
+      // 최신순 정렬
+      data.records.sort((a, b) => a.timestamp > b.timestamp ? -1 : 1);
+
+      const ul = createElement('ul', { className: 'record-list' });
+      let lastDate = '';
+      data.records.forEach(r => {
+        // 날짜가 바뀌면 구분선 표시
+        if (r.date !== lastDate) {
+          lastDate = r.date;
+          const dateHeader = createElement('li', {
+            className: 'record-item',
+            style: { background: '#EDF2F7', justifyContent: 'center', fontWeight: '700', fontSize: '0.9rem' },
+            textContent: '📅 ' + escapeHtml(r.date),
+          });
+          ul.appendChild(dateHeader);
+        }
+
+        const emo = EMOTIONS.find(e => e.name === r.emotion) || { emoji: '❓', color: '#CCC' };
+        const intIdx = Math.max(0, Math.min(4, parseInt(r.intensity) - 1));
+
+        const infoChildren = [
+          createElement('div', { className: 'r-emotion', textContent: escapeHtml(r.emotion) }),
+          createElement('div', { className: 'r-meta', textContent: (r.period ? r.period + '교시' : '') + ' · ' + escapeHtml(r.timestamp) }),
+        ];
+        if (r.memo) {
+          infoChildren.push(createElement('div', { className: 'r-memo', textContent: '"' + escapeHtml(r.memo) + '"' }));
+        }
+
+        const li = createElement('li', { className: 'record-item' }, [
+          createElement('div', { className: 'r-emoji', textContent: emo.emoji }),
+          createElement('div', { className: 'r-info' }, infoChildren),
+          createElement('div', {
+            className: 'r-intensity',
+            textContent: r.intensity,
+            style: { background: INTENSITY_COLORS[intIdx] }
+          }),
+        ]);
+        ul.appendChild(li);
+      });
+      container.appendChild(ul);
+    } else {
+      container.appendChild(createElement('div', { className: 'no-records' }, [
+        createElement('div', { className: 'emoji', textContent: '📭' }),
+        createElement('p', { textContent: '아직 기록이 없어요' }),
+      ]));
+    }
+  } catch (err) {
+    container.replaceChildren();
+    container.appendChild(createElement('div', { className: 'no-records' }, [
+      createElement('div', { className: 'emoji', textContent: '⚠️' }),
+      createElement('p', { textContent: '불러오기 실패. 다시 시도해봐!' }),
+    ]));
+  }
+}
+
 // ===== 탭 전환 =====
 function switchTab(tab) {
   document.querySelectorAll('.tab-btn').forEach((btn, i) => {
@@ -743,7 +817,7 @@ function switchTab(tab) {
   });
   document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  if (tab === 'view') loadRecords();
+  if (tab === 'view') loadAllRecords();
 }
 
 // ===== 토스트 =====
