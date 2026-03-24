@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!-- 일기장 -->
+  <rect x="12" y="8" width="40" height="48" rx="4" fill="#FF8E8E"/>
+  <rect x="16" y="8" width="36" height="48" rx="3" fill="#FFF8E7"/>
+  <!-- 일기장 줄 -->
+  <line x1="20" y1="22" x2="48" y2="22" stroke="#FFD4D4" stroke-width="1.5"/>
+  <line x1="20" y1="30" x2="48" y2="30" stroke="#FFD4D4" stroke-width="1.5"/>
+  <line x1="20" y1="38" x2="48" y2="38" stroke="#FFD4D4" stroke-width="1.5"/>
+  <!-- 스마일 얼굴 -->
+  <circle cx="34" cy="30" r="12" fill="#FFE66D" opacity="0.9"/>
+  <circle cx="30" cy="27" r="1.8" fill="#2D3436"/>
+  <circle cx="38" cy="27" r="1.8" fill="#2D3436"/>
+  <path d="M29 33 Q34 38 39 33" stroke="#2D3436" stroke-width="2" fill="none" stroke-linecap="round"/>
+  <!-- 일기장 바인딩 -->
+  <rect x="12" y="14" width="6" height="4" rx="1" fill="#FF6B6B"/>
+  <rect x="12" y="28" width="6" height="4" rx="1" fill="#FF6B6B"/>
+  <rect x="12" y="42" width="6" height="4" rx="1" fill="#FF6B6B"/>
+</svg>
