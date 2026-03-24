@@ -199,6 +199,21 @@ function saveEmotion(data) {
   return { success: true, message: '감정이 기록되었습니다! 😊' };
 }
 
+// ===== 날짜 변환 헬퍼 (Date 객체 → yyyy-MM-dd 문자열) =====
+function toDateString(val) {
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, 'Asia/Seoul', 'yyyy-MM-dd');
+  }
+  return String(val);
+}
+
+function toTimestampString(val) {
+  if (val instanceof Date) {
+    return Utilities.formatDate(val, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+  }
+  return String(val);
+}
+
 // ===== 기록 조회 (학생용) =====
 function getRecords(params) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -209,13 +224,13 @@ function getRecords(params) {
   for (var i = 1; i < data.length; i++) {
     if (String(data[i][3]) === String(params.classNum) &&
         String(data[i][4]) === String(params.studentNum)) {
-      // 날짜 필터링 (선택적)
-      if (params.date && String(data[i][1]) !== String(params.date)) {
+      var rowDate = toDateString(data[i][1]);
+      if (params.date && rowDate !== String(params.date)) {
         continue;
       }
       records.push({
-        timestamp: String(data[i][0]),
-        date: String(data[i][1]),
+        timestamp: toTimestampString(data[i][0]),
+        date: rowDate,
         period: String(data[i][2]),
         emotion: String(data[i][6]),
         intensity: String(data[i][7]),
@@ -235,13 +250,14 @@ function getClassRecords(params) {
 
   var records = [];
   for (var i = 1; i < data.length; i++) {
+    var rowDate = toDateString(data[i][1]);
     var matchClass = !params.classNum || String(data[i][3]) === String(params.classNum);
-    var matchDate = !params.date || String(data[i][1]) === String(params.date);
+    var matchDate = !params.date || rowDate === String(params.date);
 
     if (matchClass && matchDate) {
       records.push({
-        timestamp: String(data[i][0]),
-        date: String(data[i][1]),
+        timestamp: toTimestampString(data[i][0]),
+        date: rowDate,
         period: String(data[i][2]),
         classNum: String(data[i][3]),
         studentNum: String(data[i][4]),
