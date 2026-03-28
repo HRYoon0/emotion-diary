@@ -82,7 +82,7 @@
     }
 
     /* ===== 컨테이너 ===== */
-    .container { max-width: 1200px; margin: 0 auto; padding: 20px 12px; }
+    .container { max-width: 100%; margin: 0 auto; padding: 20px 8px; }
 
     /* ===== 필터 바 ===== */
     .filter-bar {
@@ -142,18 +142,18 @@
     .table-wrapper { overflow-x: auto; }
     .records-table {
       width: 100%; border-collapse: separate; border-spacing: 0;
-      font-size: 0.9rem; white-space: nowrap;
+      font-size: 1rem; white-space: nowrap;
     }
     .records-table thead th {
-      background: #F8F9FA; padding: 10px 14px; text-align: left;
-      font-weight: 700; color: var(--text-light); font-size: 0.85rem;
+      background: #F8F9FA; padding: 10px 12px; text-align: left;
+      font-weight: 700; color: var(--text-light); font-size: 0.95rem;
       border-bottom: 2px solid #E0E0E0;
     }
     .records-table tbody td {
-      padding: 10px 14px; border-bottom: 1px solid #F0F0F0;
+      padding: 10px 12px; border-bottom: 1px solid #F0F0F0;
       vertical-align: middle;
     }
-    .records-table tbody td:last-child { white-space: normal; min-width: 200px; }
+    .records-table tbody td:last-child { white-space: normal; width: 40%; }
     .records-table tbody tr:hover { background: #FAFAFA; }
     .emotion-badge {
       display: inline-flex; align-items: center; gap: 4px;
