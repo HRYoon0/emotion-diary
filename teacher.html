@@ -82,7 +82,7 @@
     }
 
     /* ===== 컨테이너 ===== */
-    .container { max-width: 1000px; margin: 0 auto; padding: 20px; }
+    .container { max-width: 1200px; margin: 0 auto; padding: 20px 12px; }
 
     /* ===== 필터 바 ===== */
     .filter-bar {
@@ -139,19 +139,21 @@
     .bar-count { width: 30px; text-align: center; font-size: 0.85rem; font-weight: 700; }
 
     /* ===== 학생별 기록 테이블 ===== */
+    .table-wrapper { overflow-x: auto; }
     .records-table {
       width: 100%; border-collapse: separate; border-spacing: 0;
-      font-size: 0.9rem;
+      font-size: 0.9rem; white-space: nowrap;
     }
     .records-table thead th {
-      background: #F8F9FA; padding: 12px; text-align: left;
-      font-weight: 700; color: var(--text-light); font-size: 0.8rem;
+      background: #F8F9FA; padding: 10px 14px; text-align: left;
+      font-weight: 700; color: var(--text-light); font-size: 0.85rem;
       border-bottom: 2px solid #E0E0E0;
     }
     .records-table tbody td {
-      padding: 12px; border-bottom: 1px solid #F0F0F0;
+      padding: 10px 14px; border-bottom: 1px solid #F0F0F0;
       vertical-align: middle;
     }
+    .records-table tbody td:last-child { white-space: normal; min-width: 200px; }
     .records-table tbody tr:hover { background: #FAFAFA; }
     .emotion-badge {
       display: inline-flex; align-items: center; gap: 4px;
@@ -512,7 +514,7 @@ function renderTable(records) {
   // 헤더
   var thead = createElement('thead');
   var headerRow = createElement('tr');
-  ['시간', '반', '번호', '이름', '교시', '감정', '강도', '메모'].forEach(function(h) {
+  ['시간', '반/번호', '이름', '교시', '감정', '강도', '메모'].forEach(function(h) {
     headerRow.appendChild(createElement('th', { textContent: h }));
   });
   thead.appendChild(headerRow);
@@ -530,8 +532,7 @@ function renderTable(records) {
 
     var timeText = r.timestamp ? r.timestamp.split(' ')[1] || r.timestamp : '';
     row.appendChild(createElement('td', { textContent: timeText }));
-    row.appendChild(createElement('td', { textContent: escapeHtml(r.classNum) + '반' }));
-    row.appendChild(createElement('td', { textContent: escapeHtml(r.studentNum) + '번' }));
+    row.appendChild(createElement('td', { textContent: escapeHtml(r.classNum) + '-' + escapeHtml(r.studentNum) }));
     row.appendChild(createElement('td', { textContent: escapeHtml(r.name) }));
     row.appendChild(createElement('td', { textContent: r.period ? r.period + '교시' : '' }));
 
@@ -551,7 +552,8 @@ function renderTable(records) {
   });
 
   table.appendChild(tbody);
-  container.appendChild(table);
+  var wrapper = createElement('div', { className: 'table-wrapper' }, [table]);
+  container.appendChild(wrapper);
 }
 </script>
 
