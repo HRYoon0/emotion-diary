@@ -5,8 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>감정일기 📝</title>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <!-- 폰트 비차단 로드: 학교망에서 폰트가 느리거나 막혀도 페이지는 즉시 렌더된다 -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" media="print" onload="this.media='all'">
+  <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap"></noscript>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Jua&display=swap');
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -24,7 +28,7 @@
     }
 
     body {
-      font-family: 'Jua', sans-serif;
+      font-family: 'Jua', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
