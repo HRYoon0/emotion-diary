@@ -200,7 +200,15 @@ function saveEmotion(data) {
 
     sheet.appendRow(row);
 
-    // 방금 저장한 학생의 캐시만 무효화 → 본인은 즉시 반영
+    // 공유 캐시가 살아있으면 새 행을 제자리 추가(잠금 안이라 동시 저장과 충돌 없음)
+    // → 캐시를 지우지 않고 최신 상태로 유지하므로, 저장 직후 재조회도 시트를 안 읽음
+    try {
+      var cache = CacheService.getScriptCache();
+      var allRows = readAllCache_(cache);
+      if (allRows) { allRows.push(row); storeAllCache_(cache, allRows); }
+    } catch (e) {}
+
+    // 방금 저장한 학생의 결과 캐시만 무효화 → 본인은 즉시 반영
     invalidateStudentCache(data.classNum, data.studentNum, dateStr);
 
     return { success: true, message: '감정이 기록되었습니다! 😊' };
@@ -285,27 +293,88 @@ function getRowsForDate(sheet, dateStr) {
   return out;
 }
 
+// ===== 전체 기록 "공유" 캐시 =====
+// 핵심: 레벨/뱃지 조회(getRecords 날짜 없음)는 학생마다 전체 시트를 읽어야 하는데,
+// 반 전체가 동시에 로그인하면 30개의 전체-시트 스캔이 실행 슬롯을 꽉 채워 "로딩중"이 걸린다.
+// → 시트 전체를 학생별이 아니라 "스크립트 전역 한 벌"로 캐시해, 동시 접속 시 시트 읽기를 1회로 모은다.
+// CacheService는 값당 ~100KB 제한이라 90KB 청크로 쪼개 저장한다.
+var ALL_TTL = 30;          // 공유 캐시 수명(초) — 저장 시 제자리 갱신하므로 짧아도 최신 유지
+var ALL_CHUNK = 90000;     // 청크당 문자 수
+var ALL_MAX_CHUNKS = 25;   // 이보다 커지면(시트가 매우 큼) 공유 캐시 포기(청크 폭증 방지)
+
+// 시트에서 헤더 제외 전체 행을 읽고, 캐시 직렬화를 위해 날짜/타임스탬프를 문자열로 정규화
+function readSheetRows_() {
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록');
+  var rows = sheet.getDataRange().getValues();
+  rows.shift();
+  for (var r = 0; r < rows.length; r++) {
+    rows[r][0] = toTimestampString(rows[r][0]);
+    rows[r][1] = toDateString(rows[r][1]);
+  }
+  return rows;
+}
+
+function readAllCache_(cache) {
+  var n = cache.get('arv_n');
+  if (!n) return null;
+  n = parseInt(n, 10);
+  var keys = [];
+  for (var i = 0; i < n; i++) keys.push('arv_' + i);
+  var parts = cache.getAll(keys);
+  var joined = '';
+  for (var j = 0; j < n; j++) {
+    if (parts['arv_' + j] == null) return null; // 청크 일부 만료 → 미스 처리
+    joined += parts['arv_' + j];
+  }
+  try { return JSON.parse(joined); } catch (e) { return null; }
+}
+
+function storeAllCache_(cache, rows) {
+  try {
+    var s = JSON.stringify(rows);
+    var n = Math.ceil(s.length / ALL_CHUNK);
+    if (n > ALL_MAX_CHUNKS) { cache.remove('arv_n'); return; } // 너무 크면 공유 포기
+    var obj = {};
+    for (var i = 0; i < n; i++) obj['arv_' + i] = s.substr(i * ALL_CHUNK, ALL_CHUNK);
+    cache.putAll(obj, ALL_TTL);
+    cache.put('arv_n', String(n), ALL_TTL);
+  } catch (e) {}
+}
+
+// 조회에 쓸 행 집합을 돌려준다.
+//  - 공유 캐시가 있으면: 전체 행(메모리 필터). 동시 접속해도 시트를 안 읽음.
+//  - 캐시가 없고 날짜 조회면: 최근 행만(가벼운 폴백). 공유 캐시는 만들지 않음.
+//  - 캐시가 없고 전체 조회면: 시트 1회 읽어 공유 캐시를 채움(이후 몰려오는 요청이 공유).
+// 반환 { rows, dateFiltered } — dateFiltered=false면 rows가 이미 날짜로 걸러진 상태.
+function getQueryRows_(dateStr) {
+  var cache = CacheService.getScriptCache();
+  var rows = readAllCache_(cache);
+  if (rows) return { rows: rows, dateFiltered: !dateStr };
+  if (dateStr) {
+    var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록');
+    return { rows: getRowsForDate(sheet, dateStr), dateFiltered: true };
+  }
+  rows = readSheetRows_();
+  storeAllCache_(cache, rows);
+  return { rows: rows, dateFiltered: true };
+}
+
 // ===== 기록 조회 (학생용) =====
 function getRecords(params) {
-  var dateKey = params.date ? String(params.date) : 'all';
-  var cacheKey = 'sr_' + params.classNum + '_' + params.studentNum + '_' + dateKey;
+  var dateStr = params.date ? String(params.date) : null;
+  var cacheKey = 'sr_' + params.classNum + '_' + params.studentNum + '_' + (dateStr || 'all');
   var cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록');
-
-  var rows;
-  if (params.date) {
-    rows = getRowsForDate(sheet, String(params.date)); // 해당 날짜 행만 (빠름)
-  } else {
-    rows = sheet.getDataRange().getValues().slice(1);   // 전체 기록 (레벨/뱃지 계산용)
-  }
+  var q = getQueryRows_(dateStr); // 공유 캐시 우선 → 동시 접속해도 시트는 최대 1회만 읽음
+  var rows = q.rows;
 
   var records = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     if (String(r[3]) === String(params.classNum) &&
         String(r[4]) === String(params.studentNum)) {
+      if (!q.dateFiltered && toDateString(r[1]) !== dateStr) continue;
       records.push({
         timestamp: toTimestampString(r[0]),
         date: toDateString(r[1]),
@@ -324,26 +393,21 @@ function getRecords(params) {
 
 // ===== 반 전체 기록 조회 (교사용) =====
 function getClassRecords(params) {
+  var dateStr = params.date ? String(params.date) : null;
   var classKey = params.classNum ? String(params.classNum) : 'all';
-  var dateKey = params.date ? String(params.date) : 'all';
-  var cacheKey = 'cr_' + classKey + '_' + dateKey;
+  var cacheKey = 'cr_' + classKey + '_' + (dateStr || 'all');
   var cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록');
+  var q = getQueryRows_(dateStr); // 공유 캐시 우선
 
-  var rows;
-  if (params.date) {
-    rows = getRowsForDate(sheet, String(params.date)); // 해당 날짜 행만 (빠름)
-  } else {
-    rows = sheet.getDataRange().getValues().slice(1);   // 전체 기록
-  }
-
+  var rows = q.rows;
   var records = [];
   for (var i = 0; i < rows.length; i++) {
     var r = rows[i];
     var matchClass = !params.classNum || String(r[3]) === String(params.classNum);
     if (matchClass) {
+      if (!q.dateFiltered && toDateString(r[1]) !== dateStr) continue;
       records.push({
         timestamp: toTimestampString(r[0]),
         date: toDateString(r[1]),

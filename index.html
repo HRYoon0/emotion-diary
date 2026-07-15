@@ -790,8 +790,10 @@ function showMainScreen() {
   document.getElementById('mainScreen').style.display = 'block';
   document.getElementById('displayName').textContent =
     currentUser.classNum + '반 ' + currentUser.studentNum + '번 ' + currentUser.name;
-  loadLevelData();
+  // 오늘 요약(꼭 필요)을 먼저 부르고,
+  // 레벨/뱃지는 필수가 아니므로 랜덤 지연으로 늦게 불러 로그인 순간의 동시 요청 몰림을 분산.
   loadTodaySummary();
+  setTimeout(loadLevelData, 400 + Math.floor(Math.random() * 1600));
 }
 
 // ===== 감정 그리드 =====
