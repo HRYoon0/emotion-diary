@@ -175,28 +175,38 @@ function handleTeacherLogin(params) {
 
 // ===== 감정 저장 =====
 function saveEmotion(data) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('감정기록');
+  // 반 전체가 같은 순간에 저장해도 행이 뒤섞이지 않도록 잠금
+  var lock = LockService.getScriptLock();
+  lock.waitLock(15000);
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var sheet = ss.getSheetByName('감정기록');
 
-  var now = new Date();
-  var timestamp = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
-  var dateStr = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+    var now = new Date();
+    var timestamp = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+    var dateStr = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
 
-  var row = [
-    timestamp,
-    dateStr,
-    data.period || '',
-    data.classNum,
-    data.studentNum,
-    data.name,
-    data.emotion,
-    data.intensity || '',
-    data.memo || ''
-  ];
+    var row = [
+      timestamp,
+      dateStr,
+      data.period || '',
+      data.classNum,
+      data.studentNum,
+      data.name,
+      data.emotion,
+      data.intensity || '',
+      data.memo || ''
+    ];
 
-  sheet.appendRow(row);
+    sheet.appendRow(row);
 
-  return { success: true, message: '감정이 기록되었습니다! 😊' };
+    // 방금 저장한 학생의 캐시만 무효화 → 본인은 즉시 반영
+    invalidateStudentCache(data.classNum, data.studentNum, dateStr);
+
+    return { success: true, message: '감정이 기록되었습니다! 😊' };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 // ===== 날짜 변환 헬퍼 (Date 객체 → yyyy-MM-dd 문자열) =====
@@ -214,68 +224,153 @@ function toTimestampString(val) {
   return String(val);
 }
 
+// ===== 캐시 헬퍼 =====
+// 조회 결과를 CacheService에 잠시 저장해, 반 전체가 동시에 접속해도
+// 시트를 매번 통째로 읽지 않도록 한다 (Apps Script 동시 실행 슬롯 고갈 방지).
+var CACHE_TTL_RECORD = 600;    // 학생 기록: 10분 (본인 저장 시 즉시 무효화하므로 길게 잡아도 안전)
+var CACHE_TTL_CLASS = 20;      // 교사 반별 조회: 20초 (거의 실시간이라 별도 무효화 불필요)
+var CACHE_TTL_STUDENTS = 3600; // 학생 목록: 1시간 (거의 안 바뀜)
+
+function cacheGet(key) {
+  try {
+    var v = CacheService.getScriptCache().get(key);
+    return v ? JSON.parse(v) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function cachePut(key, obj, ttl) {
+  try {
+    var s = JSON.stringify(obj);
+    // CacheService는 값당 약 100KB 제한 → 너무 크면 캐시하지 않고 그냥 반환
+    if (s.length < 95000) {
+      CacheService.getScriptCache().put(key, s, ttl);
+    }
+  } catch (e) {}
+}
+
+// 방금 저장한 학생의 캐시만 지운다 → 본인은 즉시 반영, 다른 학생 캐시는 유지
+function invalidateStudentCache(classNum, studentNum, dateStr) {
+  try {
+    CacheService.getScriptCache().removeAll([
+      'sr_' + classNum + '_' + studentNum + '_all',       // 전체 기록(레벨/뱃지)
+      'sr_' + classNum + '_' + studentNum + '_' + dateStr // 오늘 요약/오늘 조회
+    ]);
+  } catch (e) {}
+}
+
+// 특정 날짜의 행만 시트 맨 아래에서부터 읽는다.
+// 기록은 시간순으로 아래에 쌓이므로, 요청 날짜보다 과거 행을 만나면 즉시 중단
+// → '오늘/최근' 조회 시 전체 행 수와 무관하게 읽는 양이 일정하다 (핵심 최적화).
+function getRowsForDate(sheet, dateStr) {
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return [];
+  var BLOCK = 500;
+  var out = [];
+  var row = lastRow;
+  var stop = false;
+  while (row >= 2 && !stop) {
+    var start = Math.max(2, row - BLOCK + 1);
+    var num = row - start + 1;
+    var block = sheet.getRange(start, 1, num, 9).getValues();
+    for (var i = block.length - 1; i >= 0; i--) {
+      var d = toDateString(block[i][1]);
+      if (d < dateStr) { stop = true; break; }  // yyyy-MM-dd 문자열 비교 = 날짜 비교
+      if (d === dateStr) out.push(block[i]);
+    }
+    row = start - 1;
+  }
+  out.reverse(); // 시간순(오름차순)으로 복원
+  return out;
+}
+
 // ===== 기록 조회 (학생용) =====
 function getRecords(params) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('감정기록');
-  var data = sheet.getDataRange().getValues();
+  var dateKey = params.date ? String(params.date) : 'all';
+  var cacheKey = 'sr_' + params.classNum + '_' + params.studentNum + '_' + dateKey;
+  var cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록');
+
+  var rows;
+  if (params.date) {
+    rows = getRowsForDate(sheet, String(params.date)); // 해당 날짜 행만 (빠름)
+  } else {
+    rows = sheet.getDataRange().getValues().slice(1);   // 전체 기록 (레벨/뱃지 계산용)
+  }
 
   var records = [];
-  for (var i = 1; i < data.length; i++) {
-    if (String(data[i][3]) === String(params.classNum) &&
-        String(data[i][4]) === String(params.studentNum)) {
-      var rowDate = toDateString(data[i][1]);
-      if (params.date && rowDate !== String(params.date)) {
-        continue;
-      }
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    if (String(r[3]) === String(params.classNum) &&
+        String(r[4]) === String(params.studentNum)) {
       records.push({
-        timestamp: toTimestampString(data[i][0]),
-        date: rowDate,
-        period: String(data[i][2]),
-        emotion: String(data[i][6]),
-        intensity: String(data[i][7]),
-        memo: String(data[i][8])
+        timestamp: toTimestampString(r[0]),
+        date: toDateString(r[1]),
+        period: String(r[2]),
+        emotion: String(r[6]),
+        intensity: String(r[7]),
+        memo: String(r[8])
       });
     }
   }
 
-  return { success: true, records: records };
+  var result = { success: true, records: records };
+  cachePut(cacheKey, result, CACHE_TTL_RECORD);
+  return result;
 }
 
 // ===== 반 전체 기록 조회 (교사용) =====
 function getClassRecords(params) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('감정기록');
-  var data = sheet.getDataRange().getValues();
+  var classKey = params.classNum ? String(params.classNum) : 'all';
+  var dateKey = params.date ? String(params.date) : 'all';
+  var cacheKey = 'cr_' + classKey + '_' + dateKey;
+  var cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록');
+
+  var rows;
+  if (params.date) {
+    rows = getRowsForDate(sheet, String(params.date)); // 해당 날짜 행만 (빠름)
+  } else {
+    rows = sheet.getDataRange().getValues().slice(1);   // 전체 기록
+  }
 
   var records = [];
-  for (var i = 1; i < data.length; i++) {
-    var rowDate = toDateString(data[i][1]);
-    var matchClass = !params.classNum || String(data[i][3]) === String(params.classNum);
-    var matchDate = !params.date || rowDate === String(params.date);
-
-    if (matchClass && matchDate) {
+  for (var i = 0; i < rows.length; i++) {
+    var r = rows[i];
+    var matchClass = !params.classNum || String(r[3]) === String(params.classNum);
+    if (matchClass) {
       records.push({
-        timestamp: toTimestampString(data[i][0]),
-        date: rowDate,
-        period: String(data[i][2]),
-        classNum: String(data[i][3]),
-        studentNum: String(data[i][4]),
-        name: String(data[i][5]),
-        emotion: String(data[i][6]),
-        intensity: String(data[i][7]),
-        memo: String(data[i][8])
+        timestamp: toTimestampString(r[0]),
+        date: toDateString(r[1]),
+        period: String(r[2]),
+        classNum: String(r[3]),
+        studentNum: String(r[4]),
+        name: String(r[5]),
+        emotion: String(r[6]),
+        intensity: String(r[7]),
+        memo: String(r[8])
       });
     }
   }
 
-  return { success: true, records: records };
+  var result = { success: true, records: records };
+  cachePut(cacheKey, result, CACHE_TTL_CLASS);
+  return result;
 }
 
 // ===== 학생 목록 조회 (교사용) =====
 function getStudentList(params) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getSheetByName('학생목록');
+  var classKey = params.classNum ? String(params.classNum) : 'all';
+  var cacheKey = 'sl_' + classKey;
+  var cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  var sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('학생목록');
   var data = sheet.getDataRange().getValues();
 
   var students = [];
@@ -290,7 +385,9 @@ function getStudentList(params) {
     }
   }
 
-  return { success: true, students: students };
+  var result = { success: true, students: students };
+  cachePut(cacheKey, result, CACHE_TTL_STUDENTS);
+  return result;
 }
 
 // ===== 메뉴 추가 =====

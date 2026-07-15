@@ -485,6 +485,21 @@ function escapeHtml(str) {
   return div.textContent;
 }
 
+// ===== 타임아웃 있는 fetch =====
+// 서버가 느리거나 응답이 없을 때 '로딩중'으로 무한 대기하지 않도록,
+// 일정 시간이 지나면 요청을 취소하고 에러를 던진다 → 화면에 '다시 시도' 표시 가능.
+async function fetchJSON(url, options, timeoutMs) {
+  timeoutMs = timeoutMs || 15000;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // 안전한 DOM 요소 생성 헬퍼
 function createElement(tag, attrs, children) {
   const el = document.createElement(tag);
@@ -673,8 +688,7 @@ async function loadLevelData() {
   try {
     const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
       '&studentNum=' + encodeURIComponent(currentUser.studentNum);
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await fetchJSON(url);
     if (data.success) {
       const stats = calcStats(data.records);
       renderLevelCard(stats);
@@ -743,8 +757,7 @@ async function login() {
     const url = API_URL + '?action=login&classNum=' + encodeURIComponent(classNum) +
       '&studentNum=' + encodeURIComponent(studentNum) +
       '&password=' + encodeURIComponent(password);
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await fetchJSON(url);
 
     if (data.success) {
       currentUser = data.student;
@@ -840,11 +853,10 @@ async function saveEmotion() {
       memo: document.getElementById('memoInput').value
     };
 
-    const res = await fetch(API_URL, {
+    const data = await fetchJSON(API_URL, {
       method: 'POST',
       body: JSON.stringify(payload),
     });
-    const data = await res.json();
 
     if (data.success) {
       showToast(selectedEmotion.emoji + ' "' + selectedEmotion.name + '" 기록 완료!');
@@ -871,8 +883,7 @@ async function loadTodaySummary() {
     const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
       '&studentNum=' + encodeURIComponent(currentUser.studentNum) +
       '&date=' + getToday();
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await fetchJSON(url);
 
     const container = document.getElementById('todaySummary');
     container.replaceChildren();
@@ -913,8 +924,7 @@ async function loadRecords() {
     const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
       '&studentNum=' + encodeURIComponent(currentUser.studentNum) +
       '&date=' + encodeURIComponent(date);
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await fetchJSON(url);
 
     container.replaceChildren();
 
@@ -953,9 +963,16 @@ async function loadRecords() {
     }
   } catch (err) {
     container.replaceChildren();
+    const retryBtn = createElement('button', {
+      className: 'btn-save',
+      textContent: '🔄 다시 시도',
+      style: { marginTop: '12px', width: 'auto', padding: '10px 24px' },
+      onclick: loadRecords,
+    });
     const errDiv = createElement('div', { className: 'no-records' }, [
       createElement('div', { className: 'emoji', textContent: '⚠️' }),
-      createElement('p', { textContent: '불러오기 실패. 다시 시도해봐!' }),
+      createElement('p', { textContent: '불러오기 실패. 잠시 후 다시 시도해줘!' }),
+      retryBtn,
     ]);
     container.appendChild(errDiv);
   }
@@ -973,8 +990,7 @@ async function loadAllRecords() {
   try {
     const url = API_URL + '?action=getRecords&classNum=' + encodeURIComponent(currentUser.classNum) +
       '&studentNum=' + encodeURIComponent(currentUser.studentNum);
-    const res = await fetch(url);
-    const data = await res.json();
+    const data = await fetchJSON(url);
 
     container.replaceChildren();
 
@@ -1029,7 +1045,13 @@ async function loadAllRecords() {
     container.replaceChildren();
     container.appendChild(createElement('div', { className: 'no-records' }, [
       createElement('div', { className: 'emoji', textContent: '⚠️' }),
-      createElement('p', { textContent: '불러오기 실패. 다시 시도해봐!' }),
+      createElement('p', { textContent: '불러오기 실패. 잠시 후 다시 시도해줘!' }),
+      createElement('button', {
+        className: 'btn-save',
+        textContent: '🔄 다시 시도',
+        style: { marginTop: '12px', width: 'auto', padding: '10px 24px' },
+        onclick: loadAllRecords,
+      }),
     ]));
   }
 }

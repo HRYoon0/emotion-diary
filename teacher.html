@@ -272,6 +272,20 @@ function escapeHtml(str) {
 }
 
 // 안전한 DOM 요소 생성 헬퍼
+// ===== 타임아웃 있는 fetch =====
+// 서버 응답이 없을 때 '불러오는 중'으로 무한 대기하지 않도록 일정 시간 후 요청 취소.
+async function fetchJSON(url, options, timeoutMs) {
+  timeoutMs = timeoutMs || 15000;
+  var controller = new AbortController();
+  var timer = setTimeout(function() { controller.abort(); }, timeoutMs);
+  try {
+    var res = await fetch(url, Object.assign({}, options, { signal: controller.signal }));
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function createElement(tag, attrs, children) {
   var el = document.createElement(tag);
   if (attrs) {
@@ -339,8 +353,7 @@ async function teacherLogin() {
 
   try {
     var url = API_URL + '?action=teacherLogin&password=' + encodeURIComponent(pw);
-    var res = await fetch(url);
-    var data = await res.json();
+    var data = await fetchJSON(url);
 
     if (data.success) {
       sessionStorage.setItem('teacher_logged_in', 'true');
@@ -387,10 +400,9 @@ async function loadDashboard() {
   try {
     var url = API_URL + '?action=getClassRecords&classNum=' + encodeURIComponent(classNum) +
       '&date=' + encodeURIComponent(date);
-    var res = await fetch(url);
-    var data = await res.json();
+    var data = await fetchJSON(url);
 
-    if (!data.success) return;
+    if (!data.success) throw new Error(data.message || '조회 실패');
 
     var records = data.records;
 
@@ -410,7 +422,13 @@ async function loadDashboard() {
     tableDiv.replaceChildren();
     tableDiv.appendChild(createElement('div', { className: 'no-records' }, [
       createElement('div', { className: 'emoji', textContent: '⚠️' }),
-      createElement('p', { textContent: '데이터를 불러올 수 없습니다.' }),
+      createElement('p', { textContent: '데이터를 불러올 수 없습니다. 잠시 후 다시 시도해주세요.' }),
+      createElement('button', {
+        className: 'btn-primary',
+        textContent: '🔄 다시 시도',
+        style: { marginTop: '12px', width: 'auto', padding: '10px 24px' },
+        onclick: loadDashboard,
+      }),
     ]));
   }
 }
