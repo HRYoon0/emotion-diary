@@ -175,46 +175,55 @@ function handleTeacherLogin(params) {
 
 // ===== 감정 저장 =====
 function saveEmotion(data) {
-  // 반 전체가 같은 순간에 저장해도 행이 뒤섞이지 않도록 잠금
+  var cache = CacheService.getScriptCache();
+  var reqKey = data.reqId ? 'req_' + data.reqId : null;
+  var ok = { success: true, message: '감정이 기록되었습니다! 😊' };
+
+  var now = new Date();
+  var timestamp = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
+  var dateStr = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
+  var row = [
+    timestamp,
+    dateStr,
+    data.period || '',
+    data.classNum,
+    data.studentNum,
+    data.name,
+    data.emotion,
+    data.intensity || '',
+    data.memo || ''
+  ];
+
+  // 잠금 안에서는 "중복 확인 + 행 추가"만 한다.
+  // 반 전체가 동시에 저장하면 여기서 한 줄로 서므로, 잠금 안 작업이 무거우면
+  // 뒤쪽 학생이 클라이언트 타임아웃에 걸린다(서버는 저장했는데 화면엔 오류 → 재시도 중복).
   var lock = LockService.getScriptLock();
-  lock.waitLock(15000);
+  lock.waitLock(30000);
   try {
-    var ss = SpreadsheetApp.getActiveSpreadsheet();
-    var sheet = ss.getSheetByName('감정기록');
-
-    var now = new Date();
-    var timestamp = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd HH:mm:ss');
-    var dateStr = Utilities.formatDate(now, 'Asia/Seoul', 'yyyy-MM-dd');
-
-    var row = [
-      timestamp,
-      dateStr,
-      data.period || '',
-      data.classNum,
-      data.studentNum,
-      data.name,
-      data.emotion,
-      data.intensity || '',
-      data.memo || ''
-    ];
-
-    sheet.appendRow(row);
-
-    // 공유 캐시가 살아있으면 새 행을 제자리 추가(잠금 안이라 동시 저장과 충돌 없음)
-    // → 캐시를 지우지 않고 최신 상태로 유지하므로, 저장 직후 재조회도 시트를 안 읽음
-    try {
-      var cache = CacheService.getScriptCache();
-      var allRows = readAllCache_(cache);
-      if (allRows) { allRows.push(row); storeAllCache_(cache, allRows); }
-    } catch (e) {}
-
-    // 방금 저장한 학생의 결과 캐시만 무효화 → 본인은 즉시 반영
-    invalidateStudentCache(data.classNum, data.studentNum, dateStr);
-
-    return { success: true, message: '감정이 기록되었습니다! 😊' };
+    // 타임아웃 뒤 같은 요청을 다시 보낸 경우: 이미 저장됐으면 또 쓰지 않는다
+    if (reqKey && cache.get(reqKey)) return ok;
+    SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록').appendRow(row);
+    SpreadsheetApp.flush(); // 잠금 풀기 전에 쓰기를 확정
+    if (reqKey) cache.put(reqKey, '1', 3600);
   } finally {
     lock.releaseLock();
   }
+
+  // 공유 캐시는 전체를 다시 쓰지 않고 지우기만 한다(수백 KB 재직렬화 제거)
+  // ponytail: 저장이 몰리면 공유본이 자주 비어 전체 조회 시 시트를 다시 읽음 — 느려지면 꼬리 캐시 분리
+  try { cache.remove('arv_n'); } catch (e) {}
+
+  // 학생 본인 캐시에는 새 기록을 제자리 추가 → 저장 직후 재조회가 시트를 안 읽는다
+  appendToStudentCache(data.classNum, data.studentNum, dateStr, {
+    timestamp: timestamp,
+    date: dateStr,
+    period: String(row[2]),
+    emotion: String(row[6]),
+    intensity: String(row[7]),
+    memo: String(row[8])
+  });
+
+  return ok;
 }
 
 // ===== 날짜 변환 헬퍼 (Date 객체 → yyyy-MM-dd 문자열) =====
@@ -251,21 +260,25 @@ function cacheGet(key) {
 function cachePut(key, obj, ttl) {
   try {
     var s = JSON.stringify(obj);
-    // CacheService는 값당 약 100KB 제한 → 너무 크면 캐시하지 않고 그냥 반환
+    // CacheService는 값당 약 100KB 제한 → 너무 크면 옛 값이 남지 않게 지운다
     if (s.length < 95000) {
       CacheService.getScriptCache().put(key, s, ttl);
+    } else {
+      CacheService.getScriptCache().remove(key);
     }
   } catch (e) {}
 }
 
-// 방금 저장한 학생의 캐시만 지운다 → 본인은 즉시 반영, 다른 학생 캐시는 유지
-function invalidateStudentCache(classNum, studentNum, dateStr) {
-  try {
-    CacheService.getScriptCache().removeAll([
-      'sr_' + classNum + '_' + studentNum + '_all',       // 전체 기록(레벨/뱃지)
-      'sr_' + classNum + '_' + studentNum + '_' + dateStr // 오늘 요약/오늘 조회
-    ]);
-  } catch (e) {}
+// 방금 저장한 학생의 결과 캐시에 새 기록을 붙인다 → 본인은 즉시 반영, 다른 학생 캐시는 유지
+// 캐시가 없으면 건드리지 않는다(다음 조회가 공유본/시트에서 새로 만든다)
+function appendToStudentCache(classNum, studentNum, dateStr, record) {
+  var prefix = 'sr_' + classNum + '_' + studentNum + '_';
+  [prefix + 'all', prefix + dateStr].forEach(function (key) {
+    var cached = cacheGet(key);
+    if (!cached) return;
+    cached.records.push(record);
+    cachePut(key, cached, CACHE_TTL_RECORD);
+  });
 }
 
 // 특정 날짜의 행만 시트 맨 아래에서부터 읽는다.

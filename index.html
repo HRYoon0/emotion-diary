@@ -708,6 +708,7 @@ let API_URL = localStorage.getItem('emotion_api_url') || 'https://script.google.
 let currentUser = JSON.parse(localStorage.getItem('emotion_user') || 'null');
 let selectedPeriod = '';
 let selectedEmotion = null;
+let pendingSave = null; // 응답 못 받은 저장 {key, id} — 재시도 시 같은 ID 재사용
 
 // ===== 초기화 =====
 window.addEventListener('DOMContentLoaded', () => {
@@ -859,23 +860,35 @@ async function saveEmotion() {
       memo: document.getElementById('memoInput').value
     };
 
+    // 같은 내용을 다시 누르면 같은 요청 ID를 보낸다 → 앞선 요청이 이미 저장됐으면 서버가 중복 저장하지 않음
+    const payloadKey = JSON.stringify(payload);
+    if (!pendingSave || pendingSave.key !== payloadKey) {
+      pendingSave = { key: payloadKey, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8) };
+    }
+    payload.reqId = pendingSave.id;
+
+    // 반 전체가 동시에 저장하면 서버에서 차례를 기다리므로(최대 30초) 넉넉히 기다린다
     const data = await fetchJSON(API_URL, {
       method: 'POST',
       body: JSON.stringify(payload),
-    });
+    }, 40000);
 
     if (data.success) {
+      pendingSave = null;
       showToast(selectedEmotion.emoji + ' "' + selectedEmotion.name + '" 기록 완료!');
       document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
       document.getElementById('memoInput').value = '';
       selectedEmotion = null;
       loadTodaySummary();
-      loadLevelData();
+      // 반 전체 저장 직후 몰림 분산(레벨은 급하지 않음)
+      setTimeout(loadLevelData, 1000 + Math.floor(Math.random() * 3000));
     } else {
       showToast('저장 실패: ' + data.message);
     }
   } catch (err) {
-    showToast('서버 연결 오류! 다시 시도해줘.');
+    // 응답을 못 받았어도 저장은 됐을 수 있음 → 오늘 기록을 새로 불러 보여준다(다시 눌러도 중복 저장 안 됨)
+    showToast('저장이 늦어지고 있어. 아래 오늘 기록에 없으면 한 번 더 눌러줘!');
+    loadTodaySummary();
   }
 
   btn.disabled = false;
