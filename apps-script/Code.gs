@@ -204,7 +204,7 @@ function saveEmotion(data) {
     if (reqKey && cache.get(reqKey)) return ok;
     SpreadsheetApp.getActiveSpreadsheet().getSheetByName('감정기록').appendRow(row);
     SpreadsheetApp.flush(); // 잠금 풀기 전에 쓰기를 확정
-    if (reqKey) cache.put(reqKey, '1', 3600);
+    if (reqKey) cache.put(reqKey, '1', 21600); // 6시간(최대치) — 클라 outbox 보관 기한과 맞춤
   } finally {
     lock.releaseLock();
   }

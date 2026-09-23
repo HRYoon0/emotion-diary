@@ -708,7 +708,7 @@ let API_URL = localStorage.getItem('emotion_api_url') || 'https://script.google.
 let currentUser = JSON.parse(localStorage.getItem('emotion_user') || 'null');
 let selectedPeriod = '';
 let selectedEmotion = null;
-let pendingSave = null; // 응답 못 받은 저장 {key, id} — 재시도 시 같은 ID 재사용
+let todayRecords = [];  // 서버에서 받은 오늘 기록(요약 칩 표시용)
 
 // ===== 초기화 =====
 window.addEventListener('DOMContentLoaded', () => {
@@ -784,6 +784,7 @@ function showLoginError(msg) {
 
 function logout() {
   currentUser = null;
+  todayRecords = []; // 같은 PC에서 다음 학생에게 앞 학생 기록이 보이지 않게
   localStorage.removeItem('emotion_user');
   document.getElementById('mainScreen').style.display = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
@@ -799,6 +800,7 @@ function showMainScreen() {
   // 레벨/뱃지는 필수가 아니므로 랜덤 지연으로 늦게 불러 로그인 순간의 동시 요청 몰림을 분산.
   loadTodaySummary();
   setTimeout(loadLevelData, 400 + Math.floor(Math.random() * 1600));
+  flushOutbox(); // 지난번에 못 보낸 기록이 있으면 이어서 보냄
 }
 
 // ===== 감정 그리드 =====
@@ -844,56 +846,88 @@ async function saveEmotion() {
   if (!selectedPeriod) { showToast('교시를 선택해줘! 🕐'); return; }
   if (!selectedEmotion) { showToast('감정을 선택해줘! 💭'); return; }
 
-  const btn = document.getElementById('btnSave');
-  btn.disabled = true;
-  btn.textContent = '저장 중...';
+  // 버튼은 서버 응답을 기다리지 않는다: 보낼 목록(outbox)에 넣고 바로 완료 처리,
+  // 전송은 뒤에서 성공할 때까지 재시도한다. reqId 덕분에 재시도해도 서버에 한 번만 저장된다.
+  const item = {
+    action: 'saveEmotion',
+    classNum: currentUser.classNum,
+    studentNum: currentUser.studentNum,
+    name: currentUser.name,
+    period: selectedPeriod,
+    emotion: selectedEmotion.name,
+    intensity: document.getElementById('intensitySlider').value,
+    memo: document.getElementById('memoInput').value,
+    reqId: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+    queuedAt: Date.now()
+  };
+  writeOutbox(readOutbox().concat(item));
 
-  try {
-    const payload = {
-      action: 'saveEmotion',
-      classNum: currentUser.classNum,
-      studentNum: currentUser.studentNum,
-      name: currentUser.name,
-      period: selectedPeriod,
-      emotion: selectedEmotion.name,
-      intensity: document.getElementById('intensitySlider').value,
-      memo: document.getElementById('memoInput').value
-    };
-
-    // 같은 내용을 다시 누르면 같은 요청 ID를 보낸다 → 앞선 요청이 이미 저장됐으면 서버가 중복 저장하지 않음
-    const payloadKey = JSON.stringify(payload);
-    if (!pendingSave || pendingSave.key !== payloadKey) {
-      pendingSave = { key: payloadKey, id: Date.now().toString(36) + Math.random().toString(36).slice(2, 8) };
-    }
-    payload.reqId = pendingSave.id;
-
-    // 반 전체가 동시에 저장하면 서버에서 차례를 기다리므로(최대 30초) 넉넉히 기다린다
-    const data = await fetchJSON(API_URL, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }, 40000);
-
-    if (data.success) {
-      pendingSave = null;
-      showToast(selectedEmotion.emoji + ' "' + selectedEmotion.name + '" 기록 완료!');
-      document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
-      document.getElementById('memoInput').value = '';
-      selectedEmotion = null;
-      loadTodaySummary();
-      // 반 전체 저장 직후 몰림 분산(레벨은 급하지 않음)
-      setTimeout(loadLevelData, 1000 + Math.floor(Math.random() * 3000));
-    } else {
-      showToast('저장 실패: ' + data.message);
-    }
-  } catch (err) {
-    // 응답을 못 받았어도 저장은 됐을 수 있음 → 오늘 기록을 새로 불러 보여준다(다시 눌러도 중복 저장 안 됨)
-    showToast('저장이 늦어지고 있어. 아래 오늘 기록에 없으면 한 번 더 눌러줘!');
-    loadTodaySummary();
-  }
-
-  btn.disabled = false;
-  btn.textContent = '감정 기록하기 ✨';
+  showToast(selectedEmotion.emoji + ' "' + selectedEmotion.name + '" 기록했어!');
+  document.querySelectorAll('.emotion-btn').forEach(b => b.classList.remove('selected'));
+  document.getElementById('memoInput').value = '';
+  selectedEmotion = null;  // 같은 기록을 연달아 두 번 넣지 않도록 감정 선택을 비움
+  renderTodaySummary();
+  flushOutbox();
 }
+
+// ===== 보낼 목록(outbox): localStorage에 보관 → 새로고침해도 이어서 전송 =====
+const OUTBOX_KEY = 'emotion_outbox';
+const OUTBOX_MAX_AGE = 6 * 60 * 60 * 1000; // 서버 중복확인 캐시(6시간)보다 오래된 항목은 버림
+
+function readOutbox() {
+  try {
+    const q = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]');
+    return q.filter(x => Date.now() - x.queuedAt < OUTBOX_MAX_AGE);
+  } catch (e) {
+    return [];
+  }
+}
+
+function writeOutbox(q) {
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(q)); } catch (e) {}
+}
+
+let flushing = false;
+let retryTimer = null;
+let retryDelay = 3000;
+
+async function flushOutbox() {
+  if (flushing) return;
+  flushing = true;
+  clearTimeout(retryTimer);
+  try {
+    let q = readOutbox();
+    while (q.length) {
+      const item = q[0];
+      let data = null;
+      try {
+        // 반 전체가 동시에 저장하면 서버에서 차례를 기다리므로(최대 30초) 넉넉히 기다린다
+        data = await fetchJSON(API_URL, { method: 'POST', body: JSON.stringify(item) }, 40000);
+      } catch (e) {}
+      if (!data || !data.success) {
+        // 실패(시간 초과·서버 혼잡): 점점 간격을 늘려 다시 보낸다. 무작위 지연으로 반 전체 재시도가 겹치지 않게.
+        retryTimer = setTimeout(flushOutbox, retryDelay + Math.random() * retryDelay);
+        retryDelay = Math.min(retryDelay * 2, 30000);
+        return;
+      }
+      retryDelay = 3000;
+      q = readOutbox().filter(x => x.reqId !== item.reqId);
+      writeOutbox(q);
+      loadTodaySummary();
+      // 레벨은 급하지 않으므로 늦게 불러 몰림 분산
+      setTimeout(loadLevelData, 1000 + Math.floor(Math.random() * 3000));
+    }
+  } finally {
+    flushing = false;
+    renderTodaySummary();
+  }
+}
+
+window.addEventListener('online', flushOutbox);
+// 아직 못 보낸 기록이 있으면 창 닫기 전에 경고(닫아도 다음에 열면 이어서 보냄)
+window.addEventListener('beforeunload', (e) => {
+  if (readOutbox().length) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // ===== 오늘 감정 요약 (안전한 DOM 생성) =====
 async function loadTodaySummary() {
@@ -903,26 +937,39 @@ async function loadTodaySummary() {
       '&studentNum=' + encodeURIComponent(currentUser.studentNum) +
       '&date=' + getToday();
     const data = await fetchJSON(url);
-
-    const container = document.getElementById('todaySummary');
-    container.replaceChildren();
-
-    if (data.success && data.records.length > 0) {
-      data.records.forEach(r => {
-        const emo = EMOTIONS.find(e => e.name === r.emotion) || { emoji: '❓' };
-        const chip = createElement('div', { className: 'summary-chip' }, [
-          createElement('span', { className: 's-emoji', textContent: emo.emoji }),
-          (r.period || '') + ' - ' + escapeHtml(r.emotion),
-        ]);
-        container.appendChild(chip);
-      });
-    } else {
-      const chip = createElement('div', { className: 'summary-chip' });
-      chip.textContent = '아직 오늘 기록이 없어요. 첫 감정을 기록해볼까? ✨';
-      container.appendChild(chip);
-    }
+    if (data.success) todayRecords = data.records;
   } catch (err) {
     // 조용히 실패
+  }
+  renderTodaySummary();
+}
+
+// 서버 기록 + 아직 보내는 중인 기록(⏳)을 함께 그린다
+function renderTodaySummary() {
+  const container = document.getElementById('todaySummary');
+  container.replaceChildren();
+
+  const pending = currentUser ? readOutbox().filter(x =>
+    x.classNum === currentUser.classNum && x.studentNum === currentUser.studentNum) : [];
+
+  todayRecords.forEach(r => {
+    const emo = EMOTIONS.find(e => e.name === r.emotion) || { emoji: '❓' };
+    container.appendChild(createElement('div', { className: 'summary-chip' }, [
+      createElement('span', { className: 's-emoji', textContent: emo.emoji }),
+      (r.period || '') + ' - ' + escapeHtml(r.emotion),
+    ]));
+  });
+  pending.forEach(r => {
+    container.appendChild(createElement('div', { className: 'summary-chip', style: { opacity: '0.7' } }, [
+      createElement('span', { className: 's-emoji', textContent: '⏳' }),
+      (r.period || '') + ' - ' + r.emotion + ' (보내는 중)',
+    ]));
+  });
+
+  if (!todayRecords.length && !pending.length) {
+    const chip = createElement('div', { className: 'summary-chip' });
+    chip.textContent = '아직 오늘 기록이 없어요. 첫 감정을 기록해볼까? ✨';
+    container.appendChild(chip);
   }
 }
 
